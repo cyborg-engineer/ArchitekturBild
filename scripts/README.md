@@ -7,6 +7,8 @@ Diese Skripte starten und stoppen den lokalen MVP-Stack:
 
 ## Voraussetzungen
 - Root-`.env` enthaelt `OPENROUTER_API_KEY`
+- Root-`.env` enthaelt `DATABASE_URL` (PostgreSQL), z. B. `postgresql+pg8000://architekturbild:architekturbild@localhost:5432/architekturbild`
+- Root-`.env` enthaelt MinIO-Werte: `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`
 - Backend-Venv vorhanden: `backend/.venv`
 - Frontend-Abhaengigkeiten installiert: `frontend/node_modules`
 

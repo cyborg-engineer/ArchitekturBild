@@ -29,3 +29,23 @@ export async function analyzeImage({ file, systemPrompt, model, signal }) {
     systemPrompt: payload?.system_prompt || systemPrompt
   };
 }
+
+export async function fetchHistory({ limit = 20, signal } = {}) {
+  const response = await fetch(`${API_BASE_URL}/api/history?limit=${limit}`, {
+    method: "GET",
+    signal
+  });
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(payload?.detail || "Historie konnte nicht geladen werden.");
+  }
+
+  return Array.isArray(payload?.items) ? payload.items : [];
+}

@@ -1,11 +1,19 @@
+from __future__ import annotations
+
 import base64
+import hashlib
 import os
 from pathlib import Path
+from typing import Union
 
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import SQLAlchemyError
+
+from .db import LLMCallPayload, init_db, list_calls, save_call
+from .storage import MinioStorage, MinioStorageError
 
 
 ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -24,9 +32,47 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+def on_startup() -> None:
+    try:
+        init_db()
+    except SQLAlchemyError as exc:
+        raise RuntimeError(
+            "PostgreSQL connection failed. Check DATABASE_URL and database availability."
+        ) from exc
+    try:
+        app.state.storage = MinioStorage.from_env()
+    except MinioStorageError as exc:
+        raise RuntimeError(f"MinIO configuration/startup failed: {exc}") from exc
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/history")
+async def read_history(limit: int = 50) -> dict[str, list[dict[str, Union[str, int, None]]]]:
+    normalized_limit = max(1, min(limit, 200))
+    try:
+        items = list_calls(limit=normalized_limit)
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to load history from PostgreSQL",
+        ) from exc
+    storage = app.state.storage
+    for item in items:
+        bucket = item.get("storage_bucket")
+        object_key = item.get("storage_object_key")
+        if isinstance(bucket, str) and bucket and isinstance(object_key, str) and object_key:
+            try:
+                item["image_url"] = storage.presigned_url(bucket=bucket, object_key=object_key)
+            except MinioStorageError:
+                item["image_url"] = None
+        else:
+            item["image_url"] = None
+    return {"items": items}
 
 
 @app.post("/api/analyze")
@@ -35,6 +81,7 @@ async def analyze_image(
     system_prompt: str = Form(...),
     model: str = Form(...),
 ) -> dict[str, str]:
+    storage = app.state.storage
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise HTTPException(
@@ -51,6 +98,7 @@ async def analyze_image(
 
     encoded_image = base64.b64encode(image_bytes).decode("utf-8")
     image_data_url = f"data:{file.content_type};base64,{encoded_image}"
+    image_sha256 = hashlib.sha256(image_bytes).hexdigest()
 
     payload = {
         "model": model,
@@ -102,6 +150,39 @@ async def analyze_image(
         raise HTTPException(
             status_code=502,
             detail="Unexpected OpenRouter response format",
+        ) from exc
+
+    try:
+        stored = storage.store_image(
+            image_bytes=image_bytes,
+            content_type=file.content_type,
+            image_sha256=image_sha256,
+            filename=file.filename,
+        )
+    except MinioStorageError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Saving image to MinIO failed: {exc}",
+        ) from exc
+
+    try:
+        save_call(
+            LLMCallPayload(
+                image_filename=file.filename,
+                image_content_type=file.content_type,
+                image_size_bytes=len(image_bytes),
+                image_sha256=image_sha256,
+                storage_bucket=stored.bucket,
+                storage_object_key=stored.object_key,
+                system_prompt=system_prompt,
+                model=model,
+                description=description,
+            )
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Analyze succeeded but saving call to PostgreSQL failed",
         ) from exc
 
     return {

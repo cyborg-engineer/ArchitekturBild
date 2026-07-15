@@ -1,7 +1,7 @@
 # PLAN.md - ArchitekturBild MVP
 
 ## Ziel
-Den in `AGENTS.md` definierten MVP als lokal lauffaehige Anwendung liefern, bei der Bild, Prompt, Modellauswahl und LLM-Beschreibung jederzeit synchron sind.
+Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, bei der Bild, Prompt, Modellauswahl und LLM-Beschreibung synchron sind, alle LLM-Calls historisiert werden und die Daten in PostgreSQL persistent gespeichert sind.
 
 ## Referenzen
 - Anforderungen: [`AGENTS.md`](../AGENTS.md)
@@ -15,6 +15,9 @@ Den in `AGENTS.md` definierten MVP als lokal lauffaehige Anwendung liefern, bei 
 - [x] AP5 - UI-Styling gemaess Farbkonzept
 - [x] AP6 - Skripte und lokaler Betrieb (Mac)
 - [x] AP7 - Qualitaetssicherung und MVP-Abnahme
+- [x] AP8 - Persistenzschicht mit PostgreSQL
+- [x] AP9 - Historienfunktion im Frontend
+- [x] AP10 - QA-Erweiterung fuer Persistenz und Historie
 
 ## Arbeitspakete
 
@@ -64,13 +67,13 @@ Den in `AGENTS.md` definierten MVP als lokal lauffaehige Anwendung liefern, bei 
 - [x] Bild und Beschreibung bleiben logisch synchron (neueste Eingabe -> neueste Ausgabe).
 
 ### AP4 - End-to-End-Integration und Zustandslogik
-**Ziel:** Robustes Zusammenspiel von Frontend und Backend ohne Persistenz.
+**Ziel:** Robustes Zusammenspiel von Frontend und Backend inklusive klarer Zustandslogik.
 
 **Deliverables (Checkliste):**
 - [x] API-Client im Frontend ist integriert und getestet.
 - [x] Lade-/Fehlerzustaende sind sichtbar und verstaendlich.
 - [x] Race-Conditions bei schnellen Aenderungen sind minimiert (nur letzter Request zaehlt).
-- [x] Keine Persistenz implementiert (MVP-Limit eingehalten).
+- [x] Last-Write-Wins-Verhalten ist fuer die aktuelle Ausgabe stabil umgesetzt.
 
 ### AP5 - UI-Styling gemaess Farbkonzept
 **Ziel:** Konsistentes Erscheinungsbild nach vorgegebenem Farbschema.
@@ -97,6 +100,37 @@ Den in `AGENTS.md` definierten MVP als lokal lauffaehige Anwendung liefern, bei 
 - [x] Relevante Fehlerfaelle getestet (fehlender Key, API-Fehler, ungueltige Datei).
 - [x] Abgleich mit allen Business Requirements in `AGENTS.md` ist dokumentiert.
 
+### AP8 - Persistenzschicht mit PostgreSQL
+**Ziel:** LLM-Calls dauerhaft speichern und nach Backend-Neustart wieder verfuegbar machen.
+
+**Deliverables (Checkliste):**
+- [x] PostgreSQL ist als lokale Datenbank eingebunden und erreichbar.
+- [x] Datenbankschema fuer LLM-Calls ist definiert (Bildmetadaten, Prompt, Modell, Antwort, Zeitstempel).
+- [x] Jeder erfolgreiche Analyze-Call wird persistent gespeichert.
+- [ ] Optional: Fehlerhafte Calls werden mit Status/Fallback nachvollziehbar abgelegt (falls vorgesehen).
+- [x] Backend bietet einen Read-Endpoint fuer die Historie in absteigend chronologischer Reihenfolge.
+**Statushinweis:** End-to-End verifiziert (Analyze speichern, History lesen, Persistenz nach Backend-Neustart).
+
+### AP9 - Historienfunktion im Frontend
+**Ziel:** Alle bisherigen LLM-Calls unterhalb des aktuellen Calls im selben Design darstellen (neueste oben).
+
+**Deliverables (Checkliste):**
+- [x] Frontend laedt die Historie beim Start und zeigt sie unterhalb des aktuellen Ergebnisses an.
+- [x] Historienelemente nutzen dasselbe Grundlayout wie der aktuelle Call.
+- [x] Sortierung ist korrekt: neueste Eintraege oben.
+- [x] Nach neuem Analyze-Call wird die Historie sofort aktualisiert.
+- [x] Historieneintraege enthalten mindestens Bildbezug, Prompt, Modell, Beschreibung und Zeitpunkt.
+
+### AP10 - QA-Erweiterung fuer Persistenz und Historie
+**Ziel:** Nachweis, dass Persistenz und Historienanzeige stabil funktionieren.
+
+**Deliverables (Checkliste):**
+- [x] Testfall: Analyze-Call erzeugen, Backend neustarten, Historie weiterhin vorhanden.
+- [x] Testfall: Mehrere Calls, Reihenfolge in UI korrekt (neueste oben).
+- [x] Testfall: Historie und aktueller Call visuell konsistent.
+- [x] Testfall: API/DB-Fehlerpfade fuer Historienladevorgang dokumentiert.
+- [x] QA-Report in `docs/QA_REPORT.md` um die neuen Anforderungen erweitert.
+
 ## Umsetzungsreihenfolge
 1. AP1 Projektgrundlage
 2. AP2 Backend-MVP
@@ -105,6 +139,9 @@ Den in `AGENTS.md` definierten MVP als lokal lauffaehige Anwendung liefern, bei 
 5. AP5 Styling
 6. AP6 Skripte
 7. AP7 QA und Abnahme
+8. AP8 Persistenz mit PostgreSQL
+9. AP9 Historie im Frontend
+10. AP10 QA-Erweiterung
 
 ## Architektur-Uebersicht (MVP)
 ```mermaid
@@ -113,11 +150,13 @@ flowchart LR
     frontend -->|Bild Prompt Modell| backend[FastAPIBackend]
     backend -->|Request| openrouter[OpenRouterAPI]
     openrouter -->|Beschreibung| backend
-    backend -->|Antwort| frontend
-    frontend --> view[BildUndBeschreibungSynchron]
+    backend -->|WriteCall| postgres[PostgreSQL]
+    postgres -->|ReadHistory| backend
+    backend -->|AktuelleAntwort+Historie| frontend
+    frontend --> view[BildBeschreibungHistorieSynchron]
 ```
 
 ## Abnahmekriterien (kompakt)
 - Alle in `AGENTS.md` genannten Funktionen sind vorhanden und nachvollziehbar testbar.
 - Lokaler Betrieb funktioniert ohne Docker.
-- Keine nicht geforderten Zusatzfeatures; Fokus bleibt auf MVP-Einfachheit.
+- LLM-Calls sind persistent gespeichert und nach Backend-Neustart wieder abrufbar.

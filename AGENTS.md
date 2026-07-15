@@ -10,10 +10,13 @@ This project is building an Browser App with these Key features:
 - the system prompt can be edited by the user, the text is saved with a button
 - the model can be selected with a dropdown box
 - after upload of the picture, save of a changed system prompt or selection of a different model the LLM is called immediately and the description is displayed, picture and description are always in sync, change to one of them triggers change on the other if needed
+- all former llm calls are listed in the same design under the current call in chronological order with newest on top
+- the llm calls are saved in a database
+- the database is postgreSQL
+- the calls are persisted and can be recalled after stop and start of the backend
 
 ## Limitations
 
-no persistence for the MVP
 For the MVP, this will run locally, no docker container
 
 ## Technical Decisions

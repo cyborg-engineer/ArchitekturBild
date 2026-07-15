@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { analyzeImage } from "../lib/analyzeClient";
+import { analyzeImage, fetchHistory } from "../lib/analyzeClient";
 
 const DEFAULT_PROMPT =
   "Du bist ein Architektur-Assistent. Beschreibe das Bild praezise, strukturiert und ohne Spekulation.";
@@ -24,8 +24,11 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [activeSource, setActiveSource] = useState("");
+  const [historyItems, setHistoryItems] = useState([]);
+  const [historyError, setHistoryError] = useState("");
   const latestRequestIdRef = useRef(0);
   const activeControllerRef = useRef(null);
+  const historyControllerRef = useRef(null);
 
   const hasImage = Boolean(imageFile);
   const promptHasChanges = draftPrompt !== savedPrompt;
@@ -38,10 +41,30 @@ export default function HomePage() {
     return "Analyse aktuell";
   }, [description, errorMessage, hasImage, isLoading]);
 
+  const visibleHistoryItems = useMemo(() => {
+    if (!historyItems.length) return [];
+    if (!description) return historyItems;
+
+    const first = historyItems[0];
+    const matchesCurrent =
+      first?.description === description &&
+      first?.model === selectedModel &&
+      first?.system_prompt === savedPrompt;
+
+    if (matchesCurrent) {
+      return historyItems.slice(1);
+    }
+
+    return historyItems;
+  }, [description, historyItems, savedPrompt, selectedModel]);
+
   useEffect(() => {
     return () => {
       if (activeControllerRef.current) {
         activeControllerRef.current.abort();
+      }
+      if (historyControllerRef.current) {
+        historyControllerRef.current.abort();
       }
     };
   }, []);
@@ -53,6 +76,30 @@ export default function HomePage() {
       }
     };
   }, [imagePreviewUrl]);
+
+  useEffect(() => {
+    void loadHistory();
+  }, []);
+
+  async function loadHistory() {
+    if (historyControllerRef.current) {
+      historyControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    historyControllerRef.current = controller;
+    setHistoryError("");
+
+    try {
+      const items = await fetchHistory({ limit: 20, signal: controller.signal });
+      setHistoryItems(items);
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        return;
+      }
+      setHistoryError(error.message || "Historie konnte nicht geladen werden.");
+    }
+  }
 
   async function analyze(fileArg, promptArg, modelArg, sourceLabel) {
     if (!fileArg) {
@@ -87,6 +134,7 @@ export default function HomePage() {
         return;
       }
       setDescription(payload.description || "");
+      await loadHistory();
     } catch (error) {
       if (error?.name === "AbortError") {
         return;
@@ -182,6 +230,52 @@ export default function HomePage() {
             <p>{description || <span className="muted">Noch keine Beschreibung vorhanden.</span>}</p>
           )}
         </article>
+      </section>
+
+      <section className="historySection">
+        <h2>Fruehere LLM-Calls</h2>
+        {historyError ? <p className="error">{historyError}</p> : null}
+        {!visibleHistoryItems.length ? (
+          <p className="muted">Noch keine frueheren Calls vorhanden.</p>
+        ) : (
+          <div className="historyList">
+            {visibleHistoryItems.map((item) => (
+              <article key={item.id} className="panel historyItem">
+                <div className="historyItemLayout">
+                  <div className="historyImagePane">
+                    {item.image_url ? (
+                      <img
+                        src={item.image_url}
+                        alt={item.image_filename || "Historienbild"}
+                        className="historyImage"
+                      />
+                    ) : (
+                      <div className="historyImageFallback">Kein Bild verfuegbar</div>
+                    )}
+                  </div>
+
+                  <div className="historyTextPane">
+                    <p>
+                      <strong>Modell:</strong> {item.model || "Unbekanntes Modell"}
+                    </p>
+                    <p>
+                      <strong>Dateiname:</strong> {item.image_filename || "ohne Dateiname"}
+                    </p>
+                    <p>
+                      <strong>Prompt:</strong> {item.system_prompt || "-"}
+                    </p>
+                    <p>
+                      <strong>Beschreibung:</strong> {item.description || "-"}
+                    </p>
+                    <p className="metaLine">
+                      {item.created_at ? new Date(item.created_at).toLocaleString("de-DE") : "Ohne Zeitstempel"}
+                    </p>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
     </main>
   );
