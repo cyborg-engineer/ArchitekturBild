@@ -14,16 +14,21 @@ This project is building an Browser App with these Key features:
 - the llm calls are saved in a database
 - the database is postgreSQL
 - the calls are persisted and can be recalled after stop and start of the backend
+- all future uploaded images are stored in MinIO
+- image references are persisted and images are shown in the UI history after backend restart
 
 ## Limitations
 
-For the MVP, this will run locally, no docker container
+For the MVP, this will run locally
+No full app docker container is required; optional local Docker usage for MinIO is allowed
 
 ## Technical Decisions
 
 - NextJS frontend
 - Python FastAPI backend, including serving the static NextJS site at /
 - Use OpenRouter for the AI calls. An OPENROUTER_API_KEY is in .env in the project root
+- Use PostgreSQL for call metadata persistence
+- Use MinIO for persistent image object storage and presigned URL delivery
 - Start and Stop server scripts for Mac in scripts/
 
 ## Starting Point

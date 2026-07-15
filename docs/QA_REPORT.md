@@ -116,6 +116,14 @@ Verifikation der MVP-Anforderungen aus `AGENTS.md` fuer:
      - `RuntimeError: MinIO configuration/startup failed: Failed to initialize MinIO: ...`
      - `ERROR: Application startup failed. Exiting.`
 
+13. **MinIO-Volume-Persistenz (Container-Neuerstellung)**
+   - Stack gestartet, neuer Analyze-Call erzeugt (`HTTP 200`), `storage_object_key` notiert.
+   - Stack gestoppt, MinIO-Container explizit entfernt, anschließend per Script neu erstellt.
+   - Verifikation:
+     - `storage_object_key` nach Neustart unverändert im neuesten History-Eintrag.
+     - `image_url` weiterhin vorhanden.
+     - Objektabruf per Presigned URL weiterhin erfolgreich (`HTTP 200`).
+
 ## Requirement Mapping gegen `AGENTS.md`
 
 - [x] Bild wird geladen/angezeigt  
@@ -150,6 +158,9 @@ Verifikation der MVP-Anforderungen aus `AGENTS.md` fuer:
 
 - [x] Bilder der Calls werden in MinIO gespeichert  
   Verifiziert durch `storage_bucket`/`storage_object_key` in Historie und erfolgreichen Objektabruf via Presigned URL.
+
+- [x] Zukuenftige Bilder bleiben auch nach MinIO-Container-Neuerstellung sichtbar  
+  Verifiziert durch named Docker volume (`MINIO_DOCKER_VOLUME_NAME`) und erfolgreichen Abruf desselben Objekts nach Container-Recreate.
 
 - [x] Historie zeigt pro Call links das Bild und rechts Modell, Dateiname, Prompt, Beschreibung  
   Verifiziert durch Frontend-Implementierung in `frontend/app/page.js` und zugehoeriges Styling in `frontend/app/globals.css`.

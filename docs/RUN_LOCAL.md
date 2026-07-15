@@ -17,7 +17,12 @@ MINIO_SECRET_KEY=minioadmin
 MINIO_BUCKET=architekturbild-images
 MINIO_SECURE=false
 MINIO_PRESIGNED_EXPIRES_SECONDS=900
+MINIO_DOCKER_CONTAINER_NAME=architekturbild-minio
+MINIO_DOCKER_IMAGE=minio/minio
+MINIO_DOCKER_VOLUME_NAME=architekturbild-minio-data
 ```
+
+Hinweis: `MINIO_DOCKER_VOLUME_NAME` sorgt dafuer, dass Bildobjekte auch bei geloeschtem/neu erstelltem MinIO-Container erhalten bleiben.
 
 ## Start
 Im Projektroot ausfuehren:

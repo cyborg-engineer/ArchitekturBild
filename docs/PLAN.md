@@ -1,7 +1,7 @@
 # PLAN.md - ArchitekturBild MVP
 
 ## Ziel
-Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, bei der Bild, Prompt, Modellauswahl und LLM-Beschreibung synchron sind, alle LLM-Calls historisiert werden und die Daten in PostgreSQL persistent gespeichert sind.
+Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, bei der Bild, Prompt, Modellauswahl und LLM-Beschreibung synchron sind, alle LLM-Calls historisiert werden, Metadaten in PostgreSQL persistent gespeichert sind und Bilder in MinIO gespeichert/ueber Presigned URLs ausgeliefert werden.
 
 ## Referenzen
 - Anforderungen: [`AGENTS.md`](../AGENTS.md)
@@ -18,6 +18,10 @@ Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, be
 - [x] AP8 - Persistenzschicht mit PostgreSQL
 - [x] AP9 - Historienfunktion im Frontend
 - [x] AP10 - QA-Erweiterung fuer Persistenz und Historie
+- [x] AP11 - MinIO-Integration im Backend
+- [x] AP12 - History-API mit Presigned URLs
+- [x] AP13 - Historienlayout Bild links, Text rechts
+- [x] AP14 - QA-Erweiterung fuer MinIO und Layout
 
 ## Arbeitspakete
 
@@ -131,6 +135,44 @@ Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, be
 - [x] Testfall: API/DB-Fehlerpfade fuer Historienladevorgang dokumentiert.
 - [x] QA-Report in `docs/QA_REPORT.md` um die neuen Anforderungen erweitert.
 
+### AP11 - MinIO-Integration im Backend
+**Ziel:** Jedes neu hochgeladene Bild wird bei erfolgreichem Analyze-Flow in MinIO gespeichert.
+
+**Deliverables (Checkliste):**
+- [x] MinIO-Client im Backend integriert (Konfiguration ueber `.env`).
+- [x] Upload-Logik in `/api/analyze` mit deterministischem Objekt-Key umgesetzt.
+- [x] Fehlerbehandlung: MinIO-Upload-Fehler fuehren zu klarer API-Fehlermeldung.
+- [x] Start-/Run-Doku um MinIO-Env-Variablen erweitert.
+
+### AP12 - History-API mit Presigned URLs
+**Ziel:** Historieneintraege liefern pro Bild eine Presigned URL.
+
+**Deliverables (Checkliste):**
+- [x] DB-Schema erweitert um `storage_bucket` und `storage_object_key`.
+- [x] Persistenz schreibt Objektreferenzen je Call in PostgreSQL.
+- [x] `/api/history` liefert `image_url` per Presigned URL.
+- [x] Backward-Compatibility fuer alte Datensaetze ohne Objekt-Key umgesetzt (Fallback auf kein Bild).
+
+### AP13 - Historienlayout Bild links, Text rechts
+**Ziel:** Historienzeilen zeigen links Bild und rechts Modell, Dateiname, Prompt, Beschreibung.
+
+**Deliverables (Checkliste):**
+- [x] 2-Spalten-Layout pro Historieneintrag umgesetzt.
+- [x] Textblock enthaelt Modell, Dateiname, Prompt, Beschreibung.
+- [x] Fallback bei fehlender/abgelaufener URL umgesetzt.
+- [x] Responsives Verhalten fuer kleine Screens umgesetzt.
+
+### AP14 - QA-Erweiterung fuer MinIO und Layout
+**Ziel:** Nachweis, dass Storage, URL-Erzeugung und UI-Layout stabil funktionieren.
+
+**Deliverables (Checkliste):**
+- [x] Test: Analyze erzeugt DB-Eintrag + MinIO-Objekt.
+- [x] Test: `/api/history` liefert gueltige Presigned URL.
+- [x] Test: Historie zeigt links Bild, rechts Modell/Dateiname/Prompt/Beschreibung.
+- [x] Test: Nach Backend-Neustart bleiben Eintraege sichtbar; URLs werden neu signiert.
+- [x] Fehlerfall-Test: MinIO nicht erreichbar -> klare Backend-Fehlermeldung.
+- [x] `docs/QA_REPORT.md` um MinIO-/Layout-Tests erweitert.
+
 ## Umsetzungsreihenfolge
 1. AP1 Projektgrundlage
 2. AP2 Backend-MVP
@@ -142,6 +184,10 @@ Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, be
 8. AP8 Persistenz mit PostgreSQL
 9. AP9 Historie im Frontend
 10. AP10 QA-Erweiterung
+11. AP11 MinIO-Integration
+12. AP12 Presigned URLs
+13. AP13 Historienlayout
+14. AP14 QA MinIO/Layout
 
 ## Architektur-Uebersicht (MVP)
 ```mermaid
@@ -150,13 +196,16 @@ flowchart LR
     frontend -->|Bild Prompt Modell| backend[FastAPIBackend]
     backend -->|Request| openrouter[OpenRouterAPI]
     openrouter -->|Beschreibung| backend
+    backend -->|StoreImage| minio[MinIO]
     backend -->|WriteCall| postgres[PostgreSQL]
     postgres -->|ReadHistory| backend
-    backend -->|AktuelleAntwort+Historie| frontend
+    minio -->|PresignedURL| backend
+    backend -->|AktuelleAntwort+Historie+BildURL| frontend
     frontend --> view[BildBeschreibungHistorieSynchron]
 ```
 
 ## Abnahmekriterien (kompakt)
 - Alle in `AGENTS.md` genannten Funktionen sind vorhanden und nachvollziehbar testbar.
-- Lokaler Betrieb funktioniert ohne Docker.
+- Lokaler Betrieb funktioniert; optionale Docker-Nutzung fuer MinIO wird unterstuetzt.
 - LLM-Calls sind persistent gespeichert und nach Backend-Neustart wieder abrufbar.
+- Alle neuen Bild-Uploads werden in MinIO gespeichert und in der Historie nach Neustart sichtbar angezeigt.
