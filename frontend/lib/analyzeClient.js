@@ -30,8 +30,14 @@ export async function analyzeImage({ file, systemPrompt, model, signal }) {
   };
 }
 
-export async function fetchHistory({ limit = 20, signal } = {}) {
-  const response = await fetch(`${API_BASE_URL}/api/history?limit=${limit}`, {
+export async function fetchHistory({ limit = 20, signal, vectorQuery } = {}) {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  if (typeof vectorQuery === "string") {
+    params.set("vector_query", vectorQuery);
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/history?${params.toString()}`, {
     method: "GET",
     signal
   });

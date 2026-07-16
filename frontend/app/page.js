@@ -13,6 +13,53 @@ const MODEL_OPTIONS = [
   "openai/gpt-4o-mini",
   "openai/gpt-4.1"
 ];
+const SEARCH_RELEVANCE_THRESHOLD = 0.18;
+
+function normalizeText(value) {
+  return String(value || "").toLowerCase().trim();
+}
+
+function buildTrigrams(value) {
+  const normalized = `  ${normalizeText(value).replace(/\s+/g, " ")}  `;
+  if (normalized.length < 3) return [];
+  const trigrams = [];
+  for (let index = 0; index <= normalized.length - 3; index += 1) {
+    trigrams.push(normalized.slice(index, index + 3));
+  }
+  return trigrams;
+}
+
+function trigramSimilarity(left, right) {
+  const leftTrigrams = buildTrigrams(left);
+  const rightTrigrams = buildTrigrams(right);
+  if (!leftTrigrams.length || !rightTrigrams.length) return 0;
+
+  const rightSet = new Set(rightTrigrams);
+  let intersectionCount = 0;
+  for (const trigram of leftTrigrams) {
+    if (rightSet.has(trigram)) intersectionCount += 1;
+  }
+
+  const denominator = Math.max(leftTrigrams.length, rightTrigrams.length);
+  return denominator ? intersectionCount / denominator : 0;
+}
+
+function computeRelevance(itemText, queryText) {
+  const query = normalizeText(queryText);
+  const text = normalizeText(itemText);
+  if (!query) return 1;
+  if (!text) return 0;
+
+  const exactIncludesBoost = text.includes(query) ? 0.45 : 0;
+  const tokenMatches = query
+    .split(/\s+/)
+    .filter(Boolean)
+    .reduce((accumulator, token) => (text.includes(token) ? accumulator + 1 : accumulator), 0);
+  const tokenBoost = Math.min(0.35, tokenMatches * 0.12);
+  const trigramScore = trigramSimilarity(text, query);
+
+  return Math.min(1, trigramScore + exactIncludesBoost + tokenBoost);
+}
 
 export default function HomePage() {
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
@@ -26,9 +73,18 @@ export default function HomePage() {
   const [activeSource, setActiveSource] = useState("");
   const [historyItems, setHistoryItems] = useState([]);
   const [historyError, setHistoryError] = useState("");
+  const [fuzzySearchInput, setFuzzySearchInput] = useState("");
+  const [appliedFuzzyQuery, setAppliedFuzzyQuery] = useState("");
+  const [vectorSearchInput, setVectorSearchInput] = useState("");
+  const [appliedVectorQuery, setAppliedVectorQuery] = useState("");
+  const [vectorItems, setVectorItems] = useState([]);
+  const [vectorError, setVectorError] = useState("");
+  const [isVectorLoading, setIsVectorLoading] = useState(false);
+  const [activeSearchMode, setActiveSearchMode] = useState("fuzzy");
   const latestRequestIdRef = useRef(0);
   const activeControllerRef = useRef(null);
   const historyControllerRef = useRef(null);
+  const vectorControllerRef = useRef(null);
 
   const hasImage = Boolean(imageFile);
   const promptHasChanges = draftPrompt !== savedPrompt;
@@ -58,6 +114,57 @@ export default function HomePage() {
     return historyItems;
   }, [description, historyItems, savedPrompt, selectedModel]);
 
+  const currentCallItem = useMemo(() => {
+    const hasCurrentContent = Boolean(imagePreviewUrl || description || imageFile?.name);
+    if (!hasCurrentContent) return null;
+
+    return {
+      id: "current-call",
+      source_type: "current",
+      model: selectedModel || "",
+      image_filename: imageFile?.name || "",
+      system_prompt: savedPrompt || "",
+      description: description || "",
+      image_url: imagePreviewUrl || "",
+      created_at: null
+    };
+  }, [description, imageFile, imagePreviewUrl, savedPrompt, selectedModel]);
+
+  const searchableItems = useMemo(() => {
+    const current = currentCallItem ? [currentCallItem] : [];
+    return [...current, ...visibleHistoryItems.map((item) => ({ ...item, source_type: "history" }))];
+  }, [currentCallItem, visibleHistoryItems]);
+
+  const fuzzyFilteredItems = useMemo(() => {
+    const query = normalizeText(appliedFuzzyQuery);
+    if (!query) return searchableItems;
+
+    return searchableItems
+      .map((item) => {
+        const combinedText = [
+          item.model,
+          item.image_filename,
+          item.system_prompt,
+          item.description
+        ]
+          .filter(Boolean)
+          .join(" \n ");
+
+        const relevance = computeRelevance(combinedText, query);
+        return { item, relevance };
+      })
+      .filter((entry) => entry.relevance >= SEARCH_RELEVANCE_THRESHOLD)
+      .sort((left, right) => right.relevance - left.relevance)
+      .map((entry) => entry.item);
+  }, [appliedFuzzyQuery, searchableItems]);
+
+  const vectorResultItems = useMemo(
+    () => vectorItems.map((item) => ({ ...item, source_type: "history" })),
+    [vectorItems]
+  );
+
+  const displayedItems = activeSearchMode === "vector" ? vectorResultItems : fuzzyFilteredItems;
+
   useEffect(() => {
     return () => {
       if (activeControllerRef.current) {
@@ -65,6 +172,9 @@ export default function HomePage() {
       }
       if (historyControllerRef.current) {
         historyControllerRef.current.abort();
+      }
+      if (vectorControllerRef.current) {
+        vectorControllerRef.current.abort();
       }
     };
   }, []);
@@ -98,6 +208,34 @@ export default function HomePage() {
         return;
       }
       setHistoryError(error.message || "Historie konnte nicht geladen werden.");
+    }
+  }
+
+  async function loadVectorSearch(queryText) {
+    if (vectorControllerRef.current) {
+      vectorControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    vectorControllerRef.current = controller;
+    setVectorError("");
+    setIsVectorLoading(true);
+
+    try {
+      const items = await fetchHistory({
+        limit: 20,
+        signal: controller.signal,
+        vectorQuery: queryText
+      });
+      setVectorItems(items);
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        return;
+      }
+      setVectorItems([]);
+      setVectorError(error.message || "Vektor-Suche konnte nicht geladen werden.");
+    } finally {
+      setIsVectorLoading(false);
     }
   }
 
@@ -135,6 +273,9 @@ export default function HomePage() {
       }
       setDescription(payload.description || "");
       await loadHistory();
+      if (activeSearchMode === "vector") {
+        await loadVectorSearch(appliedVectorQuery);
+      }
     } catch (error) {
       if (error?.name === "AbortError") {
         return;
@@ -171,9 +312,61 @@ export default function HomePage() {
     await analyze(imageFile, savedPrompt, nextModel, "modell");
   }
 
+  function handleFuzzySearchClick() {
+    setActiveSearchMode("fuzzy");
+    setAppliedFuzzyQuery(fuzzySearchInput);
+  }
+
+  async function handleVectorSearchClick() {
+    setActiveSearchMode("vector");
+    setAppliedVectorQuery(vectorSearchInput);
+    await loadVectorSearch(vectorSearchInput);
+  }
+
   return (
     <main className="page">
       <h1>ArchitekturBild MVP</h1>
+
+      <section className="searchSection">
+        <div className="searchRow">
+          <div className="searchBlock">
+            <label htmlFor="vectorSearchInput" className="searchLabel">
+              Vektor-Suche
+            </label>
+            <div className="searchActionRow">
+              <textarea
+                id="vectorSearchInput"
+                className="searchInput"
+                rows={2}
+                value={vectorSearchInput}
+                onChange={(event) => setVectorSearchInput(event.target.value)}
+                placeholder="Semantische Suche eingeben"
+              />
+              <button type="button" onClick={() => void handleVectorSearchClick()} disabled={isVectorLoading}>
+                suchen
+              </button>
+            </div>
+          </div>
+          <div className="searchBlock">
+            <label htmlFor="fuzzySearchInput" className="searchLabel">
+              Fuzzy-Suche
+            </label>
+            <div className="searchActionRow">
+              <textarea
+                id="fuzzySearchInput"
+                className="searchInput"
+                rows={2}
+                value={fuzzySearchInput}
+                onChange={(event) => setFuzzySearchInput(event.target.value)}
+                placeholder="Fuzzy Suche eingeben"
+              />
+              <button type="button" onClick={handleFuzzySearchClick}>
+                suchen
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className="controls">
         <label className="control">
@@ -233,14 +426,31 @@ export default function HomePage() {
       </section>
 
       <section className="historySection">
-        <h2>Fruehere LLM-Calls</h2>
+        <h2>LLM-Calls</h2>
         {historyError ? <p className="error">{historyError}</p> : null}
-        {!visibleHistoryItems.length ? (
-          <p className="muted">Noch keine frueheren Calls vorhanden.</p>
+        {vectorError && activeSearchMode === "vector" ? <p className="error">{vectorError}</p> : null}
+        {activeSearchMode === "vector" && isVectorLoading ? <p className="muted">Vektor-Suche laeuft...</p> : null}
+        {activeSearchMode === "fuzzy" && normalizeText(appliedFuzzyQuery) ? (
+          <p className="metaLine">
+            Fuzzy-Treffer fuer: <strong>{appliedFuzzyQuery}</strong>
+          </p>
+        ) : null}
+        {activeSearchMode === "vector" && normalizeText(appliedVectorQuery) ? (
+          <p className="metaLine">
+            Vektor-Treffer fuer: <strong>{appliedVectorQuery}</strong>
+          </p>
+        ) : null}
+        {!displayedItems.length ? (
+          <p className="muted">
+            {(activeSearchMode === "fuzzy" && normalizeText(appliedFuzzyQuery)) ||
+            (activeSearchMode === "vector" && normalizeText(appliedVectorQuery))
+              ? "Keine relevanten Treffer gefunden."
+              : "Noch keine frueheren Calls vorhanden."}
+          </p>
         ) : (
           <div className="historyList">
-            {visibleHistoryItems.map((item) => (
-              <article key={item.id} className="panel historyItem">
+            {displayedItems.map((item) => (
+              <article key={`${item.source_type}-${item.id}`} className="panel historyItem">
                 <div className="historyItemLayout">
                   <div className="historyImagePane">
                     {item.image_url ? (
@@ -255,6 +465,9 @@ export default function HomePage() {
                   </div>
 
                   <div className="historyTextPane">
+                    <p className="sourceBadge">
+                      {item.source_type === "current" ? "Aktueller Call" : "Historie"}
+                    </p>
                     <p>
                       <strong>Modell:</strong> {item.model || "Unbekanntes Modell"}
                     </p>

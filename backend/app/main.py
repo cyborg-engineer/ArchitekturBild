@@ -4,7 +4,7 @@ import base64
 import hashlib
 import os
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 import httpx
 from dotenv import load_dotenv
@@ -12,7 +12,15 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError
 
-from .db import LLMCallPayload, init_db, list_calls, save_call
+from .db import (
+    LLMCallPayload,
+    init_db,
+    list_calls,
+    list_calls_by_vector_query,
+    list_calls_missing_embeddings,
+    save_call,
+    update_call_embedding,
+)
 from .storage import MinioStorage, MinioStorageError
 
 
@@ -20,6 +28,9 @@ ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 load_dotenv(ROOT_ENV_PATH)
 
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_EMBEDDING_API_URL = "https://openrouter.ai/api/v1/embeddings"
+OPENROUTER_EMBEDDING_MODEL = os.getenv("OPENROUTER_EMBEDDING_MODEL", "openai/text-embedding-3-small")
+VECTOR_MIN_RELEVANCE = float(os.getenv("VECTOR_MIN_RELEVANCE", "0.18"))
 
 app = FastAPI(title="ArchitekturBild Backend", version="0.1.0")
 
@@ -33,7 +44,7 @@ app.add_middleware(
 
 
 @app.on_event("startup")
-def on_startup() -> None:
+async def on_startup() -> None:
     try:
         init_db()
     except SQLAlchemyError as exc:
@@ -44,6 +55,73 @@ def on_startup() -> None:
         app.state.storage = MinioStorage.from_env()
     except MinioStorageError as exc:
         raise RuntimeError(f"MinIO configuration/startup failed: {exc}") from exc
+    await backfill_missing_embeddings()
+
+
+def compose_embedding_text(
+    model: Optional[str], filename: Optional[str], prompt: Optional[str], description: Optional[str]
+) -> str:
+    return " \n ".join([str(value).strip() for value in [model, filename, prompt, description] if value and str(value).strip()])
+
+
+async def create_embedding(text_value: str) -> list[float]:
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is missing in root .env")
+    if not text_value.strip():
+        raise RuntimeError("Embedding input text is empty")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost",
+        "X-Title": "ArchitekturBild",
+    }
+    payload = {
+        "model": OPENROUTER_EMBEDDING_MODEL,
+        "input": text_value,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(OPENROUTER_EMBEDDING_API_URL, headers=headers, json=payload)
+    except httpx.RequestError as exc:
+        raise RuntimeError(f"OpenRouter embedding request failed: {exc}") from exc
+
+    if response.status_code >= 400:
+        raise RuntimeError(f"OpenRouter embedding error: {response.text}")
+
+    try:
+        response_json = response.json()
+        vector = response_json["data"][0]["embedding"]
+        if not isinstance(vector, list) or not vector:
+            raise ValueError("Missing embedding vector")
+        return [float(value) for value in vector]
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise RuntimeError("Unexpected OpenRouter embedding response format") from exc
+
+
+async def backfill_missing_embeddings(max_items: int = 200) -> None:
+    try:
+        candidates = list_calls_missing_embeddings(limit=max_items)
+    except SQLAlchemyError:
+        return
+
+    for candidate in candidates:
+        text_value = compose_embedding_text(
+            candidate.get("model"),
+            candidate.get("image_filename"),
+            candidate.get("system_prompt"),
+            candidate.get("description"),
+        )
+        if not text_value:
+            continue
+        try:
+            embedding = await create_embedding(text_value)
+            call_id = candidate.get("id")
+            if isinstance(call_id, int):
+                update_call_embedding(call_id=call_id, embedding=embedding)
+        except Exception:
+            continue
 
 
 @app.get("/health")
@@ -52,14 +130,31 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/api/history")
-async def read_history(limit: int = 50) -> dict[str, list[dict[str, Union[str, int, None]]]]:
+async def read_history(
+    limit: int = 50,
+    vector_query: Optional[str] = None,
+) -> dict[str, list[dict[str, Union[str, int, float, None]]]]:
     normalized_limit = max(1, min(limit, 200))
     try:
-        items = list_calls(limit=normalized_limit)
+        normalized_vector_query = (vector_query or "").strip()
+        if normalized_vector_query:
+            query_embedding = await create_embedding(normalized_vector_query)
+            items = list_calls_by_vector_query(
+                query_embedding=query_embedding,
+                limit=normalized_limit,
+                min_relevance=VECTOR_MIN_RELEVANCE,
+            )
+        else:
+            items = list_calls(limit=normalized_limit)
     except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=500,
             detail="Failed to load history from PostgreSQL",
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
         ) from exc
     storage = app.state.storage
     for item in items:
@@ -165,6 +260,14 @@ async def analyze_image(
             detail=f"Saving image to MinIO failed: {exc}",
         ) from exc
 
+    embedding: Optional[list[float]] = None
+    embedding_source = compose_embedding_text(model, file.filename, system_prompt, description)
+    if embedding_source:
+        try:
+            embedding = await create_embedding(embedding_source)
+        except RuntimeError:
+            embedding = None
+
     try:
         save_call(
             LLMCallPayload(
@@ -177,6 +280,7 @@ async def analyze_image(
                 system_prompt=system_prompt,
                 model=model,
                 description=description,
+                embedding=embedding,
             )
         )
     except SQLAlchemyError as exc:

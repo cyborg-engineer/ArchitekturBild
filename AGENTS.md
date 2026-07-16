@@ -16,6 +16,17 @@ This project is building an Browser App with these Key features:
 - the calls are persisted and can be recalled after stop and start of the backend
 - all future uploaded images are stored in MinIO
 - image references are persisted and images are shown in the UI history after backend restart
+- in the upper search area of the UI there are two wide two-line search inputs with button "suchen" each
+- the left input is labeled "Vektor-Suche" and the right input is labeled "Fuzzy-Suche"
+- both searches start only when the user clicks the corresponding "suchen" button
+- the fuzzy search runs over model, filename, prompt, and description of current call and history
+- the fuzzy search ignores upper/lower case
+- fuzzy similar matches are included and sorted by relevance
+- all fuzzy matches with reasonable relevance are shown
+- an empty fuzzy search input shows all entries
+- the vector search runs semantically over persisted LLM calls (model, filename, prompt, description)
+- vector search results are sorted by semantic relevance in the existing result list
+- an empty vector search input shows all entries
 
 ## Limitations
 
@@ -30,6 +41,11 @@ No full app docker container is required; optional local Docker usage for MinIO 
 - Use PostgreSQL for call metadata persistence
 - Use MinIO for persistent image object storage and presigned URL delivery
 - Start and Stop server scripts for Mac in scripts/
+- Use frontend-side relevance ranking for local search result ordering
+- Use trigram-based fuzzy matching with a fixed MVP relevance threshold
+- Extend PostgreSQL with pgvector for semantic retrieval
+- Implement backend RAG pipeline for vector search (query embedding, vector similarity, relevance sorting)
+- Generate embeddings via OpenRouter and persist one embedding per LLM call
 
 ## Starting Point
 

@@ -1,7 +1,7 @@
 # PLAN.md - ArchitekturBild MVP
 
 ## Ziel
-Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, bei der Bild, Prompt, Modellauswahl und LLM-Beschreibung synchron sind, alle LLM-Calls historisiert werden, Metadaten in PostgreSQL persistent gespeichert sind und Bilder in MinIO gespeichert/ueber Presigned URLs ausgeliefert werden.
+Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, bei der Bild, Prompt, Modellauswahl und LLM-Beschreibung synchron sind, alle LLM-Calls historisiert werden, Metadaten in PostgreSQL persistent gespeichert sind und Bilder in MinIO gespeichert/ueber Presigned URLs ausgeliefert werden. Zusaetzlich werden zwei manuell gestartete Suchen geliefert: eine Fuzzy-Suche (case-insensitive, trigram-basiert, Relevanzsortierung, leere Suche zeigt alle Eintraege) und eine Vektor-Suche mit Backend-RAG auf PostgreSQL mit pgvector (semantische Relevanzsortierung, leere Suche zeigt alle Eintraege).
 
 ## Referenzen
 - Anforderungen: [`AGENTS.md`](../AGENTS.md)
@@ -22,6 +22,13 @@ Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, be
 - [x] AP12 - History-API mit Presigned URLs
 - [x] AP13 - Historienlayout Bild links, Text rechts
 - [x] AP14 - QA-Erweiterung fuer MinIO und Layout
+- [ ] AP15 - Such-UI (Eingabefeld + suchen-Button + Triggerlogik)
+- [ ] AP16 - Relevanzsuche und Ergebnisfilterung
+- [ ] AP17 - QA-Erweiterung fuer Suche
+- [ ] AP18 - UI-Erweiterung: Vektor-Suche neben Fuzzy-Suche
+- [ ] AP19 - Backend-RAG mit PostgreSQL pgvector
+- [ ] AP20 - API-Integration fuer Vektor-Suche
+- [ ] AP21 - QA-Erweiterung fuer Fuzzy + Vektor-Suche
 
 ## Arbeitspakete
 
@@ -173,6 +180,73 @@ Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, be
 - [x] Fehlerfall-Test: MinIO nicht erreichbar -> klare Backend-Fehlermeldung.
 - [x] `docs/QA_REPORT.md` um MinIO-/Layout-Tests erweitert.
 
+### AP15 - Such-UI (Eingabefeld + suchen-Button + Triggerlogik)
+**Ziel:** Eine klar sichtbare Suchbedienung im oberen Suchbereich bereitstellen, die Suche nur manuell ausloest.
+
+**Deliverables (Checkliste):**
+- [ ] Suchfelder im oberen Suchbereich, zweizeilig und deutlich breiter als hoch.
+- [ ] Button `suchen` direkt neben dem Suchfeld.
+- [ ] Suche startet ausschliesslich per Button-Klick.
+- [ ] Leerer Suchstring zeigt alle Eintraege.
+
+### AP16 - Relevanzsuche und Ergebnisfilterung
+**Ziel:** Relevante Treffer ueber aktuelle Ausgabe und Historie robust finden und sortieren.
+
+**Deliverables (Checkliste):**
+- [ ] Suchscope deckt `model`, `filename`, `prompt`, `description` fuer aktuellen Call und Historie ab.
+- [ ] Case-insensitive Normalisierung ist umgesetzt.
+- [ ] Trigram-basierter Fuzzy-Score pro Eintrag ist umgesetzt.
+- [ ] Treffer werden nach Relevanz absteigend sortiert.
+- [ ] Mindestschwelle fuer nicht-abwegige Relevanz ist definiert und angewandt.
+
+### AP17 - QA-Erweiterung fuer Suche
+**Ziel:** Nachweis, dass Such-Trigger, Matching und Sortierung stabil funktionieren.
+
+**Deliverables (Checkliste):**
+- [ ] Test: Exakter Treffer wird gefunden und korrekt sortiert.
+- [ ] Test: Gross-/Kleinschreibung beeinflusst Ergebnis nicht.
+- [ ] Test: Aehnlicher Begriff liefert fuzzy Treffer.
+- [ ] Test: Leere Suche zeigt alle Eintraege.
+- [ ] Test: Suche startet nur mit Button-Klick.
+
+### AP18 - UI-Erweiterung: Vektor-Suche neben Fuzzy-Suche
+**Ziel:** Eine zweite Suchbedienung fuer semantische Suche links neben der Fuzzy-Suche bereitstellen.
+
+**Deliverables (Checkliste):**
+- [ ] Neues Feld `Vektor-Suche` links vom bestehenden Suchfeld umgesetzt.
+- [ ] Bestehendes Feld klar als `Fuzzy-Suche` beschriftet.
+- [ ] Eigener `suchen`-Button je Suchfeld umgesetzt.
+- [ ] Beide Suchmodi werden ausschliesslich per jeweiligem Button getriggert.
+
+### AP19 - Backend-RAG mit PostgreSQL pgvector
+**Ziel:** Semantische Suche ueber persistierte LLM-Calls serverseitig bereitstellen.
+
+**Deliverables (Checkliste):**
+- [ ] PostgreSQL um `pgvector` erweitert und Schema um Embedding-Spalte aktualisiert.
+- [ ] Embedding-Erzeugung ueber OpenRouter im Backend integriert.
+- [ ] Embeddings werden fuer neue LLM-Calls beim Persistieren gespeichert.
+- [ ] Backfill-Strategie fuer bestehende LLM-Calls definiert und umgesetzt.
+- [ ] Vektor-Aehnlichkeitssuche mit Relevanzscore serverseitig verfuegbar.
+
+### AP20 - API-Integration fuer Vektor-Suche
+**Ziel:** Vektor-Suche ueber API an das Frontend anbinden, ohne das Ergebnislayout zu brechen.
+
+**Deliverables (Checkliste):**
+- [ ] API-Parameter oder Endpoint fuer Vektor-Suchquery ergaenzt.
+- [ ] Leere Vektor-Query liefert alle Eintraege.
+- [ ] Ergebnisformat bleibt kompatibel zur bestehenden Ergebnisliste.
+- [ ] Fehlerpfade fuer Embedding-/DB-Ausfaelle liefern klare Fehlermeldungen.
+
+### AP21 - QA-Erweiterung fuer Fuzzy + Vektor-Suche
+**Ziel:** Nachweis, dass beide Suchmodi stabil und nachvollziehbar funktionieren.
+
+**Deliverables (Checkliste):**
+- [ ] Test: Fuzzy-Suche arbeitet weiterhin korrekt.
+- [ ] Test: Vektor-Suche findet semantisch aehnliche Eintraege.
+- [ ] Test: Vektor-Treffer sind nach semantischer Relevanz sortiert.
+- [ ] Test: Leere Vektor-Query zeigt alle Eintraege.
+- [ ] Test: Persistenz/Neustart beeintraechtigt Vektor-Suche nicht.
+
 ## Umsetzungsreihenfolge
 1. AP1 Projektgrundlage
 2. AP2 Backend-MVP
@@ -188,6 +262,13 @@ Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, be
 12. AP12 Presigned URLs
 13. AP13 Historienlayout
 14. AP14 QA MinIO/Layout
+15. AP15 Such-UI
+16. AP16 Relevanzsuche
+17. AP17 QA Suche
+18. AP18 UI Vektor-Suche
+19. AP19 Backend-RAG pgvector
+20. AP20 API Vektor-Suche
+21. AP21 QA Fuzzy+Vektor
 
 ## Architektur-Uebersicht (MVP)
 ```mermaid
@@ -209,3 +290,5 @@ flowchart LR
 - Lokaler Betrieb funktioniert; optionale Docker-Nutzung fuer MinIO wird unterstuetzt.
 - LLM-Calls sind persistent gespeichert und nach Backend-Neustart wieder abrufbar.
 - Alle neuen Bild-Uploads werden in MinIO gespeichert und in der Historie nach Neustart sichtbar angezeigt.
+- Fuzzy-Suche und Vektor-Suche sind im oberen Suchbereich vorhanden, jeweils per Button triggerbar, und liefern relevante Treffer in sortierter Reihenfolge.
+- Vektor-Suche laeuft ueber Backend-RAG mit PostgreSQL und `pgvector` und durchsucht semantisch die persistierten LLM-Calls.

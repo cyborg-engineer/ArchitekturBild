@@ -9,6 +9,7 @@ dependencies = [
     "httpx",
     "minio",
     "pg8000",
+    "pgvector",
     "python-dotenv",
     "python-multipart",
     "sqlalchemy",

@@ -8,38 +8,8 @@ FRONTEND_PID_FILE="$RUNTIME_DIR/frontend.pid"
 BACKEND_LOG_FILE="$RUNTIME_DIR/backend.log"
 FRONTEND_LOG_FILE="$RUNTIME_DIR/frontend.log"
 MANAGED_MINIO_FILE="$RUNTIME_DIR/minio.managed"
-DEBUG_LOG_PATH="$ROOT_DIR/.cursor/debug-9f67bc.log"
-DEBUG_SESSION_ID="9f67bc"
-DEBUG_RUN_ID="${DEBUG_RUN_ID:-run_$(date +%s)}"
 
 mkdir -p "$RUNTIME_DIR"
-
-debug_log() {
-  local hypothesis_id="$1"
-  local location="$2"
-  local message="$3"
-  local data="$4"
-  python3 - "$DEBUG_LOG_PATH" "$DEBUG_SESSION_ID" "$DEBUG_RUN_ID" "$hypothesis_id" "$location" "$message" "$data" <<'PY'
-import json
-import time
-import uuid
-import sys
-
-path, session_id, run_id, hypothesis_id, location, message, data = sys.argv[1:]
-payload = {
-    "sessionId": session_id,
-    "id": f"log_{int(time.time()*1000)}_{uuid.uuid4().hex[:8]}",
-    "timestamp": int(time.time() * 1000),
-    "location": location,
-    "message": message,
-    "data": {"raw": data},
-    "runId": run_id,
-    "hypothesisId": hypothesis_id,
-}
-with open(path, "a", encoding="utf-8") as f:
-    f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-PY
-}
 
 is_running() {
   local pid="$1"
@@ -152,6 +122,23 @@ PY
   return 0
 }
 
+ensure_backend_python_version() {
+  if ! "$ROOT_DIR/backend/.venv/bin/python" - <<'PY'
+import sys
+
+if sys.version_info < (3, 11):
+    print(f"backend_python_version={sys.version.split()[0]} required>=3.11")
+    raise SystemExit(1)
+print(f"backend_python_version={sys.version.split()[0]}")
+PY
+  then
+    echo "Backend virtual environment uses unsupported Python version."
+    echo "Recreate backend/.venv with Python 3.11+ before starting."
+    return 1
+  fi
+  return 0
+}
+
 container_uses_volume() {
   local container_name="$1"
   local expected_volume="$2"
@@ -237,8 +224,12 @@ fi
 if [[ ! -d "$ROOT_DIR/backend/.venv" ]]; then
   echo "Missing backend virtual environment at backend/.venv"
   echo "Create it first, for example:"
-  echo "python3 -m venv backend/.venv"
-  echo "backend/.venv/bin/pip install fastapi httpx python-dotenv python-multipart uvicorn"
+  echo "python3.11 -m venv backend/.venv"
+  echo "backend/.venv/bin/pip install fastapi httpx minio pg8000 pgvector python-dotenv python-multipart sqlalchemy uvicorn"
+  exit 1
+fi
+
+if ! ensure_backend_python_version; then
   exit 1
 fi
 
@@ -286,24 +277,12 @@ if [[ -z "$minio_volume_name" ]]; then
 fi
 
 if ! ensure_database_reachable "$database_url"; then
-  #region agent log
-  debug_log "H2" "scripts/start_mac.sh:286" "Database precheck failed" "database_url_set=$([[ -n "$database_url" ]] && echo true || echo false)"
-  #endregion
   exit 1
 fi
- #region agent log
-debug_log "H2" "scripts/start_mac.sh:290" "Database precheck passed" "database_url_set=$([[ -n "$database_url" ]] && echo true || echo false)"
-#endregion
 
 if ! ensure_minio_for_local_endpoint "$minio_endpoint" "$minio_access_key" "$minio_secret_key" "$minio_container_name" "$minio_image_name" "$minio_volume_name"; then
-  #region agent log
-  debug_log "H3" "scripts/start_mac.sh:294" "MinIO orchestration failed" "endpoint=$minio_endpoint container=$minio_container_name volume=$minio_volume_name"
-  #endregion
   exit 1
 fi
- #region agent log
-debug_log "H3" "scripts/start_mac.sh:298" "MinIO orchestration passed" "endpoint=$minio_endpoint container=$minio_container_name volume=$minio_volume_name"
-#endregion
 
 (
   cd "$ROOT_DIR/backend"
@@ -321,9 +300,6 @@ sleep 1
 
 backend_pid="$(cat "$BACKEND_PID_FILE")"
 frontend_pid="$(cat "$FRONTEND_PID_FILE")"
-#region agent log
-debug_log "H4" "scripts/start_mac.sh:319" "Spawned backend and frontend processes" "backend_pid=$backend_pid frontend_pid=$frontend_pid"
-#endregion
 
 if ! is_running "$backend_pid"; then
   echo "Backend failed to start. Check log: $BACKEND_LOG_FILE"
@@ -341,9 +317,6 @@ fi
 
 if ! wait_for_http "http://localhost:8000/health" 10 1; then
   echo "Backend health endpoint did not become ready. Check log: $BACKEND_LOG_FILE"
-  #region agent log
-  debug_log "H4" "scripts/start_mac.sh:337" "Backend health readiness failed" "backend_pid=$backend_pid"
-  #endregion
   stop_pid_if_running "$backend_pid"
   stop_pid_if_running "$frontend_pid"
   rm -f "$BACKEND_PID_FILE" "$FRONTEND_PID_FILE"
@@ -357,10 +330,6 @@ if ! wait_for_http "http://localhost:3000" 20 1; then
   rm -f "$BACKEND_PID_FILE" "$FRONTEND_PID_FILE"
   exit 1
 fi
-
-#region agent log
-debug_log "H4" "scripts/start_mac.sh:356" "Start script completed successfully" "backend_pid=$backend_pid frontend_pid=$frontend_pid"
-#endregion
 
 echo "Started backend PID $(cat "$BACKEND_PID_FILE")"
 echo "Started frontend PID $(cat "$FRONTEND_PID_FILE")"
