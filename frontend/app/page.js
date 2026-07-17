@@ -70,6 +70,7 @@ export default function HomePage() {
   const [description, setDescription] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [errorDetail, setErrorDetail] = useState(null);
   const [activeSource, setActiveSource] = useState("");
   const [historyItems, setHistoryItems] = useState([]);
   const [historyError, setHistoryError] = useState("");
@@ -243,6 +244,7 @@ export default function HomePage() {
     if (!fileArg) {
       setDescription("");
       setErrorMessage("");
+      setErrorDetail(null);
       setIsLoading(false);
       setActiveSource("");
       return;
@@ -259,6 +261,7 @@ export default function HomePage() {
 
     setIsLoading(true);
     setErrorMessage("");
+    setErrorDetail(null);
     setActiveSource(sourceLabel);
 
     try {
@@ -272,6 +275,7 @@ export default function HomePage() {
         return;
       }
       setDescription(payload.description || "");
+      setErrorDetail(null);
       await loadHistory();
       if (activeSearchMode === "vector") {
         await loadVectorSearch(appliedVectorQuery);
@@ -284,6 +288,8 @@ export default function HomePage() {
         return;
       }
       setDescription("");
+      const detail = error?.detail && typeof error.detail === "object" ? error.detail : null;
+      setErrorDetail(detail);
       setErrorMessage(error.message || "Analyse konnte nicht geladen werden.");
     } finally {
       if (requestId === latestRequestIdRef.current) {
@@ -403,7 +409,21 @@ export default function HomePage() {
         {headlineStatus}
         {isLoading && activeSource ? ` (Quelle: ${activeSource})` : ""}
       </p>
-      {errorMessage ? <p className="error">{errorMessage}</p> : null}
+      {errorDetail?.kind === "openrouter_html_error" ? (
+        <section className="panel errorHtmlPanel">
+          <h2>OpenRouter Fehlerseite ({errorDetail.status_code || 502})</h2>
+          {errorDetail.request_id ? (
+            <p className="metaLine">Request-ID: {errorDetail.request_id}</p>
+          ) : null}
+          <iframe
+            title="OpenRouter HTML-Fehler"
+            className="errorHtmlFrame"
+            sandbox=""
+            srcDoc={String(errorDetail.html || "")}
+          />
+        </section>
+      ) : null}
+      {errorMessage && errorDetail?.kind !== "openrouter_html_error" ? <p className="error">{errorMessage}</p> : null}
 
       <section className="content">
         <article className="panel">

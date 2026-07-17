@@ -44,10 +44,12 @@ class MinioStorage:
     def __init__(
         self,
         endpoint: str,
+        public_endpoint: str,
         access_key: str,
         secret_key: str,
         bucket: str,
         secure: bool,
+        public_secure: bool,
         presigned_expires_seconds: int,
         region: str | None = None,
     ) -> None:
@@ -60,15 +62,24 @@ class MinioStorage:
             secure=secure,
             region=region,
         )
+        self.presign_client = Minio(
+            endpoint=public_endpoint,
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=public_secure,
+            region=region,
+        )
         self._ensure_bucket()
 
     @classmethod
     def from_env(cls) -> "MinioStorage":
         endpoint = os.getenv("MINIO_ENDPOINT", "").strip()
+        public_endpoint = os.getenv("MINIO_PUBLIC_ENDPOINT", "").strip() or endpoint
         access_key = os.getenv("MINIO_ACCESS_KEY", "").strip()
         secret_key = os.getenv("MINIO_SECRET_KEY", "").strip()
         bucket = os.getenv("MINIO_BUCKET", "").strip()
         secure = _as_bool(os.getenv("MINIO_SECURE"), default=False)
+        public_secure = _as_bool(os.getenv("MINIO_PUBLIC_SECURE"), default=secure)
         region = os.getenv("MINIO_REGION", "").strip() or None
         expires = int(os.getenv("MINIO_PRESIGNED_EXPIRES_SECONDS", "900"))
 
@@ -88,10 +99,12 @@ class MinioStorage:
         try:
             return cls(
                 endpoint=endpoint,
+                public_endpoint=public_endpoint,
                 access_key=access_key,
                 secret_key=secret_key,
                 bucket=bucket,
                 secure=secure,
+                public_secure=public_secure,
                 presigned_expires_seconds=expires,
                 region=region,
             )
@@ -130,7 +143,7 @@ class MinioStorage:
 
     def presigned_url(self, bucket: str, object_key: str) -> str:
         try:
-            return self.client.presigned_get_object(
+            return self.presign_client.presigned_get_object(
                 bucket_name=bucket,
                 object_name=object_key,
                 expires=timedelta(seconds=self.presigned_expires_seconds),

@@ -143,6 +143,19 @@ button:disabled {
   margin: 0 0 12px;
 }
 
+.errorHtmlPanel {
+  margin: 0 0 12px;
+  border-top-color: #b91c1c;
+}
+
+.errorHtmlFrame {
+  width: 100%;
+  min-height: 480px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+}
+
 .content {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -276,5 +289,9 @@ button:disabled {
 
   .historyItemLayout {
     grid-template-columns: 1fr;
+  }
+
+  .errorHtmlFrame {
+    min-height: 360px;
   }
 }

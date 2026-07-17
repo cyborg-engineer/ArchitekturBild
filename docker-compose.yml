@@ -22,6 +22,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_REGION_NAME: eu-central-1
     volumes:
       - minio_data:/data
     healthcheck:
@@ -42,7 +43,10 @@ services:
     environment:
       DATABASE_URL: postgresql+pg8000://architekturbild:architekturbild@postgres:5432/architekturbild
       MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: localhost:9000
       MINIO_SECURE: "false"
+      MINIO_PUBLIC_SECURE: "false"
+      MINIO_REGION: eu-central-1
       PYTHONUNBUFFERED: "1"
     depends_on:
       postgres:

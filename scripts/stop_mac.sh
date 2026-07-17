@@ -14,5 +14,34 @@ if [[ ! -f "$ROOT_DIR/docker-compose.yml" ]]; then
   exit 1
 fi
 
+STOP_RETRIES="${STOP_RETRIES:-5}"
+STOP_BACKOFF_SECONDS="${STOP_BACKOFF_SECONDS:-2}"
+
+compose_down_with_retry() {
+  local attempt
+  local max_attempts="$STOP_RETRIES"
+  local backoff="$STOP_BACKOFF_SECONDS"
+
+  for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+    if docker compose down; then
+      return 0
+    fi
+
+    if (( attempt == max_attempts )); then
+      break
+    fi
+
+    echo "docker compose down failed (attempt ${attempt}/${max_attempts}). Retrying in ${backoff}s..."
+    sleep "$backoff"
+    backoff=$((backoff * 2))
+  done
+
+  return 1
+}
+
 echo "Stopping container stack (volumes are kept)..."
-docker compose down
+if ! compose_down_with_retry; then
+  echo "Failed to stop stack after ${STOP_RETRIES} attempts."
+  echo "Likely Docker daemon/API instability. Please restart Docker Desktop and retry."
+  exit 1
+fi

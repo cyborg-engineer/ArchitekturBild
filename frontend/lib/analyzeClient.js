@@ -20,7 +20,16 @@ export async function analyzeImage({ file, systemPrompt, model, signal }) {
   }
 
   if (!response.ok) {
-    throw new Error(payload?.detail || "Unbekannter Backend-Fehler");
+    const detail = payload?.detail ?? null;
+    const message =
+      typeof detail === "object" && detail?.message
+        ? detail.message
+        : typeof detail === "string"
+          ? detail
+          : "Unbekannter Backend-Fehler";
+    const error = new Error(message);
+    error.detail = detail;
+    throw error;
   }
 
   return {
