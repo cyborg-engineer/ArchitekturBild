@@ -1,7 +1,7 @@
 # PLAN.md - ArchitekturBild MVP
 
 ## Ziel
-Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, bei der Bild, Prompt, Modellauswahl und LLM-Beschreibung synchron sind, alle LLM-Calls historisiert werden, Metadaten in PostgreSQL persistent gespeichert sind und Bilder in MinIO gespeichert/ueber Presigned URLs ausgeliefert werden. Zusaetzlich werden zwei manuell gestartete Suchen geliefert: eine Fuzzy-Suche (case-insensitive, trigram-basiert, Relevanzsortierung, leere Suche zeigt alle Eintraege) und eine Vektor-Suche mit Backend-RAG auf PostgreSQL mit pgvector (semantische Relevanzsortierung, leere Suche zeigt alle Eintraege).
+Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, bei der Bild, Prompt, Modellauswahl und LLM-Beschreibung synchron sind, alle LLM-Calls historisiert werden, Metadaten in PostgreSQL persistent gespeichert sind und Bilder in MinIO gespeichert/ueber Presigned URLs ausgeliefert werden. Zusaetzlich werden zwei manuell gestartete Suchen geliefert: eine Fuzzy-Suche (case-insensitive, trigram-basiert, Relevanzsortierung, leere Suche zeigt alle Eintraege) und eine Vektor-Suche mit Backend-RAG auf PostgreSQL mit pgvector (semantische Relevanzsortierung, leere Suche zeigt alle Eintraege). Der gesamte Software-Stack laeuft containerisiert ueber Docker Compose; persistente Daten werden ausschliesslich in Docker Volumes gehalten.
 
 ## Referenzen
 - Anforderungen: [`AGENTS.md`](../AGENTS.md)
@@ -29,6 +29,12 @@ Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, be
 - [ ] AP19 - Backend-RAG mit PostgreSQL pgvector
 - [ ] AP20 - API-Integration fuer Vektor-Suche
 - [ ] AP21 - QA-Erweiterung fuer Fuzzy + Vektor-Suche
+- [x] AP22 - Vollstaendige Container-Orchestrierung
+- [x] AP23 - Backend- und Frontend-Containerisierung
+- [x] AP24 - Persistenz ausschliesslich ueber Docker Volumes
+- [x] AP25 - Cleanup obsoleter Altartefakte
+- [x] AP26 - Doku-Update AGENTS.md und PLAN.md
+- [x] AP27 - Container-QA und Abnahme
 
 ## Arbeitspakete
 
@@ -247,6 +253,54 @@ Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, be
 - [ ] Test: Leere Vektor-Query zeigt alle Eintraege.
 - [ ] Test: Persistenz/Neustart beeintraechtigt Vektor-Suche nicht.
 
+### AP22 - Vollstaendige Container-Orchestrierung
+**Ziel:** Alle Laufzeitkomponenten werden reproduzierbar ueber Docker Compose gestartet und gestoppt.
+
+**Deliverables (Checkliste):**
+- [x] `docker-compose.yml` orchestriert `frontend`, `backend`, `postgres`, `minio`.
+- [x] Healthchecks und Start-Reihenfolge (`depends_on`) sind definiert.
+- [x] Containernetzwerk nutzt Service-Namen statt localhost zwischen Services.
+
+### AP23 - Backend- und Frontend-Containerisierung
+**Ziel:** Backend und Frontend laufen ohne lokale Runtime-Abhaengigkeit ausserhalb von Docker.
+
+**Deliverables (Checkliste):**
+- [x] `backend/Dockerfile` erstellt lauffaehiges FastAPI-Image.
+- [x] `frontend/Dockerfile` erstellt lauffaehiges NextJS-Image.
+- [x] Compose-Umgebungsvariablen sind auf Containerbetrieb abgestimmt.
+
+### AP24 - Persistenz ausschliesslich ueber Docker Volumes
+**Ziel:** Persistente Daten bleiben containerunabhaengig erhalten.
+
+**Deliverables (Checkliste):**
+- [x] PostgreSQL-Daten werden in benanntem Docker Volume persistiert.
+- [x] MinIO-Objektdaten werden in benanntem Docker Volume persistiert.
+- [x] Persistenz ist nach `down`/`up` weiterhin gegeben.
+
+### AP25 - Cleanup obsoleter Altartefakte
+**Ziel:** Dateien und Logik der alten Mischloesung werden entfernt, soweit nicht mehr benoetigt.
+
+**Deliverables (Checkliste):**
+- [x] Alte hostbasierte Start-/Stop-Orchestrierung entfernt oder ersetzt.
+- [x] Nicht mehr benoetigte lokale Runtime-Artefakte bereinigt.
+- [x] Ueberfluessige Altdoku-Hinweise zur Vorloesung entfernt.
+
+### AP26 - Doku-Update AGENTS.md und PLAN.md
+**Ziel:** Steuerdokumente spiegeln den containerisierten Sollzustand vollstaendig wider.
+
+**Deliverables (Checkliste):**
+- [x] `AGENTS.md` beschreibt den vollstaendig containerisierten Betrieb.
+- [x] `PLAN.md` enthaelt Containerisierungs-/Cleanup-/Doku-Arbeitspakete.
+- [x] Run-Dokumentation verweist auf Docker-Compose-Flows.
+
+### AP27 - Container-QA und Abnahme
+**Ziel:** Nachweis, dass der containerisierte Stack inkl. Persistenz stabil arbeitet.
+
+**Deliverables (Checkliste):**
+- [x] E2E-Start/Stop ueber Docker Compose erfolgreich.
+- [x] Persistenztest fuer PostgreSQL und MinIO nach Neustart erfolgreich.
+- [x] Smoke-Test fuer Fuzzy- und Vektor-Suche im Containerbetrieb erfolgreich.
+
 ## Umsetzungsreihenfolge
 1. AP1 Projektgrundlage
 2. AP2 Backend-MVP
@@ -269,6 +323,12 @@ Den in `AGENTS.md` definierten Scope als lokal lauffaehige Anwendung liefern, be
 19. AP19 Backend-RAG pgvector
 20. AP20 API Vektor-Suche
 21. AP21 QA Fuzzy+Vektor
+22. AP22 Container-Orchestrierung
+23. AP23 Backend/Frontend Container
+24. AP24 Persistenz Volumes
+25. AP25 Cleanup Altartefakte
+26. AP26 Doku-Update
+27. AP27 Container-QA
 
 ## Architektur-Uebersicht (MVP)
 ```mermaid
@@ -287,8 +347,9 @@ flowchart LR
 
 ## Abnahmekriterien (kompakt)
 - Alle in `AGENTS.md` genannten Funktionen sind vorhanden und nachvollziehbar testbar.
-- Lokaler Betrieb funktioniert; optionale Docker-Nutzung fuer MinIO wird unterstuetzt.
+- Der gesamte lokale Betrieb funktioniert containerisiert ueber Docker Compose.
 - LLM-Calls sind persistent gespeichert und nach Backend-Neustart wieder abrufbar.
 - Alle neuen Bild-Uploads werden in MinIO gespeichert und in der Historie nach Neustart sichtbar angezeigt.
 - Fuzzy-Suche und Vektor-Suche sind im oberen Suchbereich vorhanden, jeweils per Button triggerbar, und liefern relevante Treffer in sortierter Reihenfolge.
 - Vektor-Suche laeuft ueber Backend-RAG mit PostgreSQL und `pgvector` und durchsucht semantisch die persistierten LLM-Calls.
+- Persistente Daten liegen ausschliesslich in benannten Docker Volumes.

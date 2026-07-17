@@ -10,10 +10,10 @@ Verifikation der MVP-Anforderungen aus `AGENTS.md` fuer:
 - Abgleich der Business Requirements
 
 ## Testbasis
-- Lokaler Start/Stop ueber `scripts/start_mac.sh` und `scripts/stop_mac.sh`
+- Containerisierter Start/Stop ueber `scripts/start_mac.sh` und `scripts/stop_mac.sh` (`docker compose`)
 - Backend-API unter `http://localhost:8000`
 - Frontend unter `http://localhost:3000`
-- Testartefakte in `.run/`
+- Persistente Daten in Docker Volumes `postgres_data` und `minio_data`
 
 ## Testcheckliste (ausgefuehrt)
 
@@ -166,5 +166,12 @@ Verifikation der MVP-Anforderungen aus `AGENTS.md` fuer:
   Verifiziert durch Frontend-Implementierung in `frontend/app/page.js` und zugehoeriges Styling in `frontend/app/globals.css`.
 
 ## Limitations Check
-- [x] Lokaler Betrieb ohne Docker (MVP-konform)
-- [x] Persistenz ist als aktueller Scope umgesetzt (PostgreSQL).
+- [x] Lokaler Betrieb via Docker Compose (MVP-konform)
+- [x] Persistenz ist fuer PostgreSQL und MinIO ueber Docker Volumes umgesetzt.
+
+## Container-QA (AP27)
+- [x] Komplettstart des Stacks mit `docker compose up -d --build` erfolgreich.
+- [x] Healthchecks fuer `postgres`, `minio`, `backend` und `frontend` erfolgreich.
+- [x] Persistenztest PostgreSQL: Marker-Datensatz bleibt nach `down`/`up` erhalten.
+- [x] Persistenztest MinIO: Marker-Objekt bleibt nach `down`/`up` erhalten.
+- [x] API-Smoke-Test fuer Historie inkl. `vector_query` liefert HTTP 200.

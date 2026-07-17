@@ -1,17 +1,19 @@
 # Scripts (Mac)
 
 ## Zweck
-Diese Skripte starten und stoppen den lokalen MVP-Stack:
-- Backend (FastAPI) auf Port `8000`
-- Frontend (NextJS dev server) auf Port `3000`
+Diese Skripte steuern den kompletten Container-Stack per Docker Compose:
+- `postgres` (mit `pgvector`)
+- `minio`
+- `backend` (FastAPI)
+- `frontend` (NextJS)
 
 ## Voraussetzungen
-- Root-`.env` enthaelt `OPENROUTER_API_KEY`
-- Root-`.env` enthaelt `DATABASE_URL` (PostgreSQL), z. B. `postgresql+pg8000://architekturbild:architekturbild@localhost:5432/architekturbild`
-- Root-`.env` enthaelt MinIO-Werte: `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`
-- Optional fuer lokale Docker-Orchestrierung: `MINIO_DOCKER_CONTAINER_NAME`, `MINIO_DOCKER_IMAGE`, `MINIO_DOCKER_VOLUME_NAME`
-- Backend-Venv vorhanden: `backend/.venv`
-- Frontend-Abhaengigkeiten installiert: `frontend/node_modules`
+- Docker Desktop oder Docker Engine mit Compose-Plugin ist installiert.
+- Root-`.env` enthaelt mindestens:
+  - `OPENROUTER_API_KEY`
+  - `MINIO_ACCESS_KEY`
+  - `MINIO_SECRET_KEY`
+  - `MINIO_BUCKET`
 
 ## Start
 Vom Projektroot:
@@ -20,11 +22,7 @@ Vom Projektroot:
 ./scripts/start_mac.sh
 ```
 
-Ausgabe nach Start:
-- PID von Backend und Frontend
-- Log-Pfade
-- Falls `MINIO_ENDPOINT` lokal ist, wird MinIO per Docker automatisch gestartet/neu erstellt.
-- MinIO-Daten werden im benannten Volume (`MINIO_DOCKER_VOLUME_NAME`) persistent gehalten.
+Das Skript fuehrt `docker compose up -d --build` aus.
 
 ## Stop
 Vom Projektroot:
@@ -33,13 +31,14 @@ Vom Projektroot:
 ./scripts/stop_mac.sh
 ```
 
-## Logs und Runtime-Dateien
-Werden unter `.run/` abgelegt:
-- `.run/backend.log`
-- `.run/frontend.log`
-- `.run/backend.pid`
-- `.run/frontend.pid`
+Das Skript fuehrt `docker compose down` aus.
+Volumes bleiben dabei erhalten.
+
+## Persistente Daten
+- PostgreSQL: Volume `postgres_data`
+- MinIO: Volume `minio_data`
 
 ## Kurzer Check
 - Frontend: [http://localhost:3000](http://localhost:3000)
 - Backend Health: [http://localhost:8000/health](http://localhost:8000/health)
+- MinIO Console: [http://localhost:9001](http://localhost:9001)

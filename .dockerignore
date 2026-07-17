@@ -1,0 +1,12 @@
+.git
+.gitignore
+.cursor
+.run
+backend/.venv
+frontend/.next
+frontend/node_modules
+data
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd

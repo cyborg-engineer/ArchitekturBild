@@ -27,11 +27,13 @@ This project is building an Browser App with these Key features:
 - the vector search runs semantically over persisted LLM calls (model, filename, prompt, description)
 - vector search results are sorted by semantic relevance in the existing result list
 - an empty vector search input shows all entries
+- all application artifacts run in Docker containers (frontend, backend, PostgreSQL, MinIO)
+- all persisted data is stored in Docker named volumes
 
 ## Limitations
 
-For the MVP, this will run locally
-No full app docker container is required; optional local Docker usage for MinIO is allowed
+For the MVP, this will run locally on one machine
+The full stack is started and stopped via Docker Compose
 
 ## Technical Decisions
 
@@ -46,6 +48,8 @@ No full app docker container is required; optional local Docker usage for MinIO 
 - Extend PostgreSQL with pgvector for semantic retrieval
 - Implement backend RAG pipeline for vector search (query embedding, vector similarity, relevance sorting)
 - Generate embeddings via OpenRouter and persist one embedding per LLM call
+- Use Docker Compose to orchestrate frontend, backend, PostgreSQL (pgvector), and MinIO
+- Persist PostgreSQL and MinIO data only through Docker named volumes
 
 ## Starting Point
 
