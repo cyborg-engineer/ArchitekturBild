@@ -5,6 +5,7 @@ import base64
 import hashlib
 import logging
 import os
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -134,6 +135,10 @@ def build_openrouter_error_detail(
     }
 
 
+def elapsed_ms(start_time: float) -> int:
+    return int((time.perf_counter() - start_time) * 1000)
+
+
 async def create_embedding(text_value: str) -> list[float]:
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
@@ -246,6 +251,23 @@ async def analyze_image(
     system_prompt: str = Form(...),
     model: str = Form(...),
 ) -> dict[str, str]:
+    request_id = uuid4().hex[:12]
+    total_start = time.perf_counter()
+    chat_total_ms: Optional[int] = None
+    minio_ms: Optional[int] = None
+    embedding_ms: Optional[int] = None
+    db_ms: Optional[int] = None
+    openrouter_attempts = 0
+    used_fallback = False
+    final_model = model
+
+    logger.info(
+        "analyze_started request_id=%s model=%s filename=%s",
+        request_id,
+        model,
+        file.filename or "",
+    )
+
     storage = app.state.storage
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
@@ -271,7 +293,6 @@ async def analyze_image(
         "HTTP-Referer": "http://localhost",
         "X-Title": "ArchitekturBild",
     }
-    request_id = uuid4().hex[:12]
     candidate_models = [model, *OPENROUTER_FALLBACK_MODELS]
     deduplicated_models: list[str] = []
     for candidate in candidate_models:
@@ -280,17 +301,20 @@ async def analyze_image(
 
     response: Optional[httpx.Response] = None
     response_json: dict[str, Any] = {}
-    final_model = model
     final_body_text = ""
     final_content_type = ""
     final_status_code: Optional[int] = None
     last_request_error: Optional[httpx.RequestError] = None
     completed = False
 
+    chat_total_start = time.perf_counter()
     for model_index, candidate_model in enumerate(deduplicated_models):
         final_model = candidate_model
         fallback_used = model_index > 0
+        used_fallback = used_fallback or fallback_used
         for attempt in range(1, OPENROUTER_RETRY_ATTEMPTS + 1):
+            openrouter_attempts += 1
+            attempt_start = time.perf_counter()
             payload = {
                 "model": candidate_model,
                 "messages": [
@@ -320,12 +344,13 @@ async def analyze_image(
             except httpx.RequestError as exc:
                 last_request_error = exc
                 logger.warning(
-                    "openrouter_request_error request_id=%s model=%s attempt=%s/%s fallback_used=%s error=%s",
+                    "openrouter_request_error request_id=%s model=%s attempt=%s/%s fallback_used=%s elapsed_ms=%s error=%s",
                     request_id,
                     candidate_model,
                     attempt,
                     OPENROUTER_RETRY_ATTEMPTS,
                     fallback_used,
+                    elapsed_ms(attempt_start),
                     exc,
                 )
                 if attempt < OPENROUTER_RETRY_ATTEMPTS:
@@ -361,17 +386,25 @@ async def analyze_image(
                         model,
                         candidate_model,
                     )
+                logger.info(
+                    "openrouter_chat_success request_id=%s model=%s attempt=%s elapsed_ms=%s",
+                    request_id,
+                    candidate_model,
+                    attempt,
+                    elapsed_ms(attempt_start),
+                )
                 break
 
             retryable = response.status_code in OPENROUTER_RETRYABLE_STATUSES
             logger.warning(
-                "openrouter_upstream_error request_id=%s model=%s attempt=%s/%s fallback_used=%s status=%s",
+                "openrouter_upstream_error request_id=%s model=%s attempt=%s/%s fallback_used=%s status=%s elapsed_ms=%s",
                 request_id,
                 candidate_model,
                 attempt,
                 OPENROUTER_RETRY_ATTEMPTS,
                 fallback_used,
                 response.status_code,
+                elapsed_ms(attempt_start),
             )
             if retryable and attempt < OPENROUTER_RETRY_ATTEMPTS:
                 await asyncio.sleep(OPENROUTER_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1)))
@@ -398,6 +431,7 @@ async def analyze_image(
             continue
         break
 
+    chat_total_ms = elapsed_ms(chat_total_start)
     if not completed:
         if last_request_error and final_status_code is None:
             raise HTTPException(
@@ -420,6 +454,7 @@ async def analyze_image(
             ),
         )
 
+    minio_start = time.perf_counter()
     try:
         stored = storage.store_image(
             image_bytes=image_bytes,
@@ -427,6 +462,7 @@ async def analyze_image(
             image_sha256=image_sha256,
             filename=file.filename,
         )
+        minio_ms = elapsed_ms(minio_start)
     except MinioStorageError as exc:
         raise HTTPException(
             status_code=500,
@@ -436,11 +472,17 @@ async def analyze_image(
     embedding: Optional[list[float]] = None
     embedding_source = compose_embedding_text(final_model, file.filename, system_prompt, description)
     if embedding_source:
+        embedding_start = time.perf_counter()
         try:
             embedding = await create_embedding(embedding_source)
+            embedding_ms = elapsed_ms(embedding_start)
         except RuntimeError:
             embedding = None
+            embedding_ms = elapsed_ms(embedding_start)
+    else:
+        embedding_ms = 0
 
+    db_start = time.perf_counter()
     try:
         save_call(
             LLMCallPayload(
@@ -456,11 +498,27 @@ async def analyze_image(
                 embedding=embedding,
             )
         )
+        db_ms = elapsed_ms(db_start)
     except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=500,
             detail="Analyze succeeded but saving call to PostgreSQL failed",
         ) from exc
+
+    total_ms = elapsed_ms(total_start)
+    logger.info(
+        "analyze_timing request_id=%s final_model=%s image_bytes=%s total_ms=%s chat_ms=%s minio_ms=%s embedding_ms=%s db_ms=%s openrouter_attempts=%s fallback_used=%s",
+        request_id,
+        final_model,
+        len(image_bytes),
+        total_ms,
+        chat_total_ms if chat_total_ms is not None else -1,
+        minio_ms if minio_ms is not None else -1,
+        embedding_ms if embedding_ms is not None else -1,
+        db_ms if db_ms is not None else -1,
+        openrouter_attempts,
+        used_fallback,
+    )
 
     return {
         "description": description,
